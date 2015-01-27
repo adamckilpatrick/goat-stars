@@ -1,0 +1,355 @@
+<html>
+	<head>
+		<title>GA Fractal Thing</title>
+		<style>
+			body { margin: 0; background-color:black; color:white;}
+			canvas { width: 100%; height: 100% }
+		</style>
+	</head>
+	<body>
+		<script src="./javascripts/three.js"></script>
+		<script src="./javascripts/fractLogic.js"></script>
+		<!--<script src="./javascripts/ga.js"></script>-->
+		<script src="./javascripts/perlin.js"></script>
+		<script src="./javascripts/jquery-1.11.2.min.js"></script>
+		<script>			
+			var genome1,genome2,curGenome;
+			var tranFadeTime=1500;
+			var tranFadeDel=800;
+			function getPoolStats(){
+				$.getJSON("/api/getPoolStats",function(data){
+	  			  $('#genNum').html("Generation number "+data.genNum);
+	  			  setInterval(function(){
+	  			  var timeLeft=Date.parse(data.breedTime)-Date.now();
+	  			  var timeLeftString="";
+	  			  if(timeLeft<=0)
+	  			  {
+	  			  	timeLeftString="0:00:00";
+	  			  }
+	  			  else
+	  			  {
+	  			  	var hrs=Math.floor(timeLeft/(1000*60*60));
+	  			  	timeLeft-=hrs*(1000*60*60);
+	  			  	var mins=Math.floor(timeLeft/(1000*60));
+	  			  	timeLeft-=mins*(1000*60);
+	  			  	if(mins<10)
+	  			  	{
+	  			  		mins="0"+mins;
+	  			  	}
+	  			  	var secs=Math.floor(timeLeft/(1000));
+	  			  	if(secs<10)
+	  			  	{
+	  			  		secs="0"+secs;
+	  			  	}
+	  			  	timeLeftString=hrs+":"+mins+":"+secs;
+	  			  }
+	  			  $('#breedTime').html("Time until next evolution:"+timeLeftString);
+	  			  },1000);
+	  			  $('#votesLeft').html("Votes until next evolution: "+data.votesLeft);
+	  			  $('#curLeaders').html("Top genomes:");
+	  			  for(var i=0; i<data.legacies.length; i++)
+	  			  {
+	  			  	$("#curLeaders").html($("#curLeaders").html()+"<br/> "+data.legacies[i].name+" ("+data.legacies[i].score+")");
+	  			  }
+	  			  $("#menu").delay(1000).fadeIn("slow");
+	  			});	
+			}
+			getPoolStats();
+			function getNewPair(){
+	  			$.getJSON("/api/getPair",function(data){
+	  			  genome1=data.genome1;
+	  			  genome2=data.genome2;
+	  			  curGenome=genome1;
+			  	  $('#transition').html("Preparing...<br/>"+"<h2>"+curGenome.meta.name+"("+curGenome._id+")</h2>");
+	  			  initFractStruct();
+	  			  initRender();
+	  			  render();
+	  			});
+			}
+			//getNewPair();
+			//render();
+			//This chunk handles keyboard interaction and GA calls
+			function nextGenome() {
+			  var newCur;
+			  if(curGenome==genome1)
+			  {
+			    newCur=genome2;
+			  }
+			  else
+			  {
+			    newCur=genome1;
+			  }
+			  $('#transition').html("Preparing...<br/>"+"<h2>"+newCur.meta.name+"("+newCur._id+")</h2>");
+			  $('canvas').fadeOut('slow',function(){
+			  	curGenome=newCur;
+			  	initFractStruct();
+			  	initRender();
+			  	$('#transitionDiv').fadeIn(tranFadeTime,function(){
+			  	$('#transitionDiv').delay(tranFadeDel).fadeOut(tranFadeTime,function(){
+			  	$('canvas').fadeIn('slow',function(){
+			  	});});});
+			  }
+			  );
+			}
+			function select() {
+			  var winnerId=curGenome._id;
+			  var loserId;
+			  if(curGenome==genome1)
+			  {
+			    loserId=genome2._id;
+			  }
+			  else
+			  {
+			    loserId=genome1._id;
+			  }
+			  $.post("/api/matchResults",{"winner":winnerId,"loser":loserId},
+				  function(){
+		          		$.getJSON("/api/getPair",function(data){
+
+		    			  
+		    			  $('canvas').fadeOut('slow',function(){		    			  
+		    			  	genome1=data.genome1;
+		    			  	genome2=data.genome2;
+		    			  	curGenome=genome1;
+		    			  	$('#transition').html("Preparing...<br/>"+"<h2>"+curGenome.meta.name+"("+curGenome._id+")</h2>");
+			    			count=0;
+			    			initFractStruct();
+			    			initRender();
+					  	$('#transitionDiv').fadeIn(tranFadeTime,function(){
+					  	$('#transitionDiv').delay(tranFadeDel).fadeOut(tranFadeTime,function(){
+					  	$('canvas').fadeIn('slow',function(){
+					  	});});});
+					  });
+		    			});
+				  });
+			}
+			document.addEventListener("keydown", onDocumentKeyDown, false); 
+			function onDocumentKeyDown(event){
+				var keycode = event.which;
+				//right arrow -> next genome in the pop
+				if((keycode==39||keycode==37)&&curGenome!=null)
+				{
+					nextGenome();
+				}
+				//down arrow -> downvote
+				if(keycode==32)
+				{
+					select();
+				}
+				if(keycode==81)
+				{
+					if(curGenome==null)
+					{
+						getNewPair();
+						$('#menu').fadeOut('slow',function(){
+						$('#transitionDiv').fadeIn(tranFadeTime,function(){
+						$('#transitionDiv').delay(tranFadeDel).fadeOut(tranFadeTime,function(){
+						$('canvas').fadeIn('slow');});});});
+					}
+				}
+			}
+			
+			
+			
+			var fract,fractLines;
+			function initFractStruct(){
+				fract = new fractSystem(curGenome.ruleSet,"0",[]);
+				for(var i=0; i<curGenome.numIter; i++)
+				{
+					fract.grow();
+				}
+				fractLines = fractVerts(arrayifyFract(fract.curStruct),startPos,90);
+				if(fractLines.length>1000)
+				{
+					curGenome.numIter--;
+					initFractStruct();
+				}
+			}
+			
+
+			
+		var count=0;
+		var startPos={"x":0,"y":0};
+		//initFractStruct();
+		function fractVerts(fractStruct,posStart,angleStart) {
+			var ge=curGenome;
+			//var color={"r":240-noise(tick/100,-13)*200,"g":240-noise(tick/100,-14)*200,"b":240-noise(tick/100,-15)*200};
+			var mag=ge.size+(noise.perlin2(count*ge.sizeSpeed,0)*ge.sizeRange);
+			var curPos={"x":posStart.x,"y":posStart.y};
+			var curAng=angleStart;
+			var outVerts=[];
+			var angleDel=20;
+			
+			for(var i=0; i<fractStruct.length; i++)
+			{
+				//colCount++;
+				if(typeof(fractStruct[i])!="string")
+				{
+					if(curPos.x==startPos.x&&curPos.y==startPos.y)
+					{
+						var subVerts = fractVerts(fractStruct[i],curPos,curAng+angleDel);
+						for(var j=0; j<subVerts.length; j++)
+						{
+							outVerts.push(subVerts[j]);
+						}
+						curAng-=angleDel;
+					}
+					else
+					{
+						var subVerts=fractVerts(fractStruct[i],curPos,curAng+angleDel+(noise.perlin2(count*ge.spreadSpeed,-3))*ge.spreadRange);
+						for(var j=0; j<subVerts.length; j++)
+						{
+							outVerts.push(subVerts[j]);
+						}
+						curAng-=angleDel+(noise.perlin2(count*ge.spreadSpeed,-3))*ge.spreadRange;
+					}
+				}
+				else
+				{
+					if(fractStruct[i]=="1")
+					{
+						var newX=curPos.x+mag*Math.cos(curAng/180*Math.PI);
+						var newY=curPos.y+mag*Math.sin(curAng/180*Math.PI);
+						outVerts.push({"x1":curPos.x,"y1":curPos.y,"x2":newX,"y2":newY});
+						curPos.x=newX;
+						curPos.y=newY;
+					}
+					if(fractStruct[i]=="0")
+					{
+						var newX=curPos.x+mag*Math.cos(curAng/180*Math.PI);
+						var newY=curPos.y+mag*Math.sin(curAng/180*Math.PI);
+						outVerts.push({"x1":curPos.x,"y1":curPos.y,"x2":newX,"y2":newY});
+						curPos.x=newX;
+						curPos.y=newY;
+					}
+				}
+			}
+			return outVerts;
+		}
+			
+			
+			
+			var scene = new THREE.Scene();
+			var camera = new THREE.PerspectiveCamera( 75, window.innerWidth/window.innerHeight, 1, 1000 );
+
+			var renderer = new THREE.WebGLRenderer();
+			renderer.setSize( window.innerWidth, window.innerHeight);
+			renderer.domElement.style.display="none";
+			document.body.appendChild( renderer.domElement );
+			
+
+			var material2 = new THREE.PointCloudMaterial({
+				size:.44,vertexColors: THREE.VertexColors,opacity:.35,transparent:true,blending:THREE.AdditiveBlending,map:THREE.ImageUtils.loadTexture("./images/particle6.png")
+			});
+
+			var geometry,pcOrig,pc;
+			pc=[];
+			var numParts=10;
+			function initRender(){
+			  for(var i=0; i<pc.length;i++)
+			  {
+			    scene.remove(pc[i]);
+			    pc[i].geometry.dispose();
+			  }
+				//scene = new THREE.Scene();
+				if(geometry!=undefined)
+				{
+				  geometry.dispose();
+				}
+				geometry = new THREE.Geometry();
+				for(var i=0; i<fractLines.length; i++)
+				{
+					var segColor = new THREE.Color(0,0,0);
+					segColor.setHSL(i/fractLines.length,.8,.65);
+					//var xDel=fractLines[i].x2-fractLines[i].x1;
+					//var yDel=fractLines[i].y2-fractLines[i].y1;
+					for(var j=0;j<numParts; j++)
+					{
+						//geometry.vertices.push(new THREE.Vector3(fractLines[i].x1+j/5*xDel,fractLines[i].y1+j/5*yDel));
+						geometry.colors.push(segColor);
+					}
+				}
+
+				//Add copies of the original branch to create the spokes
+				pcOrig = new THREE.PointCloud(geometry,material2);
+				pc=[pcOrig];
+				
+				scene.add(pc[0]);
+				for(var i=1; i<curGenome.numSpokes; i++)
+				{
+					pc.push(new THREE.PointCloud(geometry,material2));
+					scene.add(pc[i]);
+				}
+			}
+			//initRender();
+
+			camera.position.z = 15;
+			//count=0;
+			var timeCheck=Date.now();
+			var render = function () {
+				requestAnimationFrame( render );
+				
+				//fractLines = fractVerts(arrayifyFract(fract.curStruct),startPos,90+noise.perlin2(count*genome1.rotSpeed,-1)*180);
+				if(Date.now()-timeCheck<50/3){return;}
+				timeCheck=Date.now();
+				pc[0].geometry.vertices=[];
+				fractLines = fractVerts(arrayifyFract(fract.curStruct),startPos,90);
+				count+=.1;
+				
+				
+				for(var i=0; i<fractLines.length; i++)
+				{
+					
+					var xDel=fractLines[i].x2-fractLines[i].x1;
+					var yDel=fractLines[i].y2-fractLines[i].y1;
+					for(var j=0;j<numParts; j++)
+					{
+						var noiseAmt=noise.perlin3(2*i*numParts+j,2*i*numParts+j,count*curGenome.noiseSpeed)*curGenome.noiseMag;
+						pc[0].geometry.vertices.push(new THREE.Vector3(
+						fractLines[i].x1+j/numParts*xDel+yDel*noiseAmt,
+						fractLines[i].y1+j/numParts*yDel+xDel*noiseAmt));
+						
+						pc[0].geometry.colors[i*numParts+j].setHSL(noise.perlin2((i*numParts+j)*curGenome.lColSpeed,count*curGenome.cColSpeed),.79+.2*noise.perlin2(0,count*curGenome.lColSpeed),.7+.2*noise.perlin2(1,count*curGenome.lColSpeed));
+						//geometry.colors.push(segColor);
+					}
+				}
+				pc[0].rotation.z=noise.perlin2(count*curGenome.rotSpeed,-1)*Math.PI;
+				//pc[0].rotation.z+=Math.PI;
+				pc[0].geometry.verticesNeedUpdate=true;
+				pc[0].geometry.colorsNeedUpdate=true;
+
+
+				
+				for(var i=1; i<curGenome.numSpokes; i++)
+				{
+					pc[i].geometry.vertices=pc[0].geometry.vertices;
+					pc[i].rotation.z=pc[0].rotation.z+i*360/curGenome.numSpokes*Math.PI/180;
+					pc[i].geometry.verticesNeedUpdate=true;
+					pc[i].geometry.colorsNeedUpdate=true;
+				}
+
+				renderer.render(scene, camera);
+			};
+
+			//render();
+		</script>
+		<div color="white" id="menu" align="center"style="display:none">
+			<div id="instructions">
+			<h2>Welcome to the thing, here's wjat to do:</h2>
+			<p>There's gonna be two fractals, which you can alternat between by using left and right arrow keys. When you decide which one you like more, hit space and you will get a new pair of fractals to look at. There's a genetic algorithm running that will (hopefully) produce better looking fractals as time goes on. Evolutions occur when a certain amount of time has elapsed and a certain number of votes has been counted. Press Q to start.</p>
+			<p><i>This probably runs p bad on a lot of machines and phones or whatever since I never learned how to do shaders or program efficiently whatsoever.</i></p>
+			</div>
+			<br/>
+			<div id="poolStats">
+			<h2>Here are some stats about the current gene pool</h2>
+			<p id="genNum"></p><br/>
+			<p id="breedTime"></p><br/>
+			<p id="votesLeft"></p><br/>
+			<p id="curLeaders"></p><br/>
+			</div>
+		</div>
+		<div color="white" id="transitionDiv" style="display:none" align="center">
+		<p id="transition"></p>	
+		</div>
+	</body>
+</html>
